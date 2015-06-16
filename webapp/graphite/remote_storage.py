@@ -38,6 +38,7 @@ class FindRequest:
     self.connection = None
     self.cacheKey = compactHash('find:%s:%s' % (self.store.host, query))
     self.cachedResults = None
+    self.metric_prefix = settings.REMOTE_STORE_METRIC_PREFIX or ''
 
 
   def send(self):
@@ -52,7 +53,7 @@ class FindRequest:
     query_params = [
       ('local', '1'),
       ('format', 'pickle'),
-      ('query', self.query),
+      ('query', self.metric_prefix + self.query),
     ]
     query_string = urlencode(query_params)
 
@@ -84,7 +85,7 @@ class FindRequest:
       else:
         results = []
 
-    resultNodes = [ RemoteNode(self.store, node['metric_path'], node['isLeaf']) for node in results ]
+    resultNodes = [ RemoteNode(self.store, node['metric_path'], node['isLeaf'], self.metric_prefix) for node in results ]
     cache.set(self.cacheKey, resultNodes, settings.REMOTE_FIND_CACHE_DURATION)
     self.cachedResults = resultNodes
     return resultNodes
@@ -94,12 +95,13 @@ class FindRequest:
 class RemoteNode:
   context = {}
 
-  def __init__(self, store, metric_path, isLeaf):
+  def __init__(self, store, metric_path, isLeaf, metric_prefix):
+    assert metric_path.startswith(metric_prefix)
     self.store = store
     self.fs_path = None
-    self.metric_path = metric_path
+    self.metric_path = metric_path[len(metric_prefix):]
     self.real_metric = metric_path
-    self.name = metric_path.split('.')[-1]
+    self.name = self.metric_path.split('.')[-1]
     self.__isLeaf = isLeaf
 
 
@@ -108,7 +110,7 @@ class RemoteNode:
       return []
 
     query_params = [
-      ('target', self.metric_path),
+      ('target', self.real_metric),
       ('format', 'pickle'),
       ('from', str( int(startTime) )),
       ('until', str( int(endTime) ))
